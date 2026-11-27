@@ -1,0 +1,88 @@
+<?php
+
+namespace App\Providers;
+
+/* @chisel-registration */
+use App\Actions\Fortify\CreateNewUser;
+/* @end-chisel-registration */
+use App\Actions\Fortify\ResetUserPassword;
+use App\Http\Responses\LoginAfterRegistrationResponse;
+use Illuminate\Cache\RateLimiting\Limit;
+use Illuminate\Http\Request;
+use Illuminate\Support\Facades\RateLimiter;
+use Illuminate\Support\ServiceProvider;
+use Illuminate\Support\Str;
+use Laravel\Fortify\Contracts\RegisterResponse;
+use Laravel\Fortify\Fortify;
+
+class FortifyServiceProvider extends ServiceProvider
+{
+    /**
+     * Register any application services.
+     */
+    public function register(): void
+    {
+        Fortify::ignoreRoutes();
+        $this->app->singleton(RegisterResponse::class, LoginAfterRegistrationResponse::class);
+    }
+
+    /**
+     * Bootstrap any application services.
+     */
+    public function boot(): void
+    {
+        $this->configureActions();
+        $this->configureViews();
+        $this->configureRateLimiting();
+    }
+
+    /**
+     * Configure Fortify actions.
+     */
+    private function configureActions(): void
+    {
+        Fortify::resetUserPasswordsUsing(ResetUserPassword::class);
+        /* @chisel-registration */
+        Fortify::createUsersUsing(CreateNewUser::class);
+        /* @end-chisel-registration */
+    }
+
+    /**
+     * Configure Fortify views.
+     */
+    private function configureViews(): void
+    {
+        Fortify::loginView(fn () => view('livewire.auth.login'));
+        /* @chisel-email-verification */
+        Fortify::verifyEmailView(fn () => view('livewire.auth.verify-email'));
+        /* @end-chisel-email-verification */
+        /* @chisel-2fa */
+        Fortify::twoFactorChallengeView(fn () => view('livewire.auth.two-factor-challenge'));
+        /* @end-chisel-2fa */
+        /* @chisel-password-confirmation */
+        Fortify::confirmPasswordView(fn () => view('livewire.auth.confirm-password'));
+        /* @end-chisel-password-confirmation */
+        /* @chisel-registration */
+        Fortify::registerView(fn () => view('livewire.auth.register'));
+        /* @end-chisel-registration */
+        Fortify::resetPasswordView(fn () => view('livewire.auth.reset-password'));
+        Fortify::requestPasswordResetLinkView(fn () => view('livewire.auth.forgot-password'));
+    }
+
+    /**
+     * Configure rate limiting.
+     */
+    private function configureRateLimiting(): void
+    {
+        RateLimiter::for('two-factor', function (Request $request) {
+            return Limit::perMinute(5)->by($request->session()->get('login.id'));
+        });
+
+        RateLimiter::for('login', function (Request $request) {
+            $throttleKey = Str::transliterate(Str::lower($request->input(Fortify::username())).'|'.$request->ip());
+
+            return Limit::perMinute(5)->by($throttleKey);
+        });
+
+    }
+}
